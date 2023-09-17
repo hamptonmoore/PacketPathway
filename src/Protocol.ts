@@ -1,4 +1,4 @@
-import { NetworkInterface } from "./Router";
+import { NetworkInterface } from "./NetworkInterface";
 
 export type IPAddressRaw = Uint8Array;
 
@@ -65,6 +65,9 @@ export class MACAddress {
       throw new Error("Invalid address");
     }
     this.address = address;
+  }
+  equals(mac: MACAddress) {
+    return this.address.every((octet, i) => octet === mac.address[i]);
   }
   toString() {
     return Array.from(this.address)

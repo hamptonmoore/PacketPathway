@@ -7,7 +7,8 @@ import {
   ARP_OPERATION,
   PacketContext,
 } from "../Protocol";
-import { Router, NetworkInterface } from "../Router";
+import { Router } from "../Router";
+import { NetworkInterface } from "../NetworkInterface";
 
 const makeDevice = (name: string, mac: string, ip: string, network: Network) => {
   const device = new Router(name);

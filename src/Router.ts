@@ -1,4 +1,3 @@
-import { Network } from "./Network";
 import {
   IPAddress,
   MACAddress,
@@ -10,35 +9,9 @@ import {
   ARP_OPERATION,
   ARP,
   PacketContext,
-  IPAddressRaw
 } from "./Protocol";
-
-interface ARPEntry {
-  MAC: MACAddress;
-  Interface: NetworkInterface;
-}
-
-class ARPTable {
-  table: Map<string, ARPEntry>;
-  constructor() {
-    this.table = new Map();
-  }
-  Add(ip: IPAddress, entry: ARPEntry) {
-    this.table.set(ip.toString(), entry);
-  }
-  Get(ip: IPAddress) {
-    return this.table.get(ip.toString());
-  }
-  Count(){
-    return this.table.size;
-  }
-  Dump() {
-    console.log(`ARP Table:`);
-    this.table.forEach((entry, ip) => {
-      console.log(`  ${ip} -> ${entry.MAC.toString()}`);
-    });
-  }
-}
+import { ARPTable } from "./ArpTable";
+import { NetworkInterface } from "./NetworkInterface";
 
 export class Router {
   interfaces: NetworkInterface[];
@@ -125,6 +98,13 @@ export class Router {
         iface,
       )}`,
     );
+
+    // Verfiy the packet is for us
+    if (!packet.dst.equals(iface.mac) && !packet.dst.isBroadcast()) {
+      ctx.Log(this, `DROP: packet not for us`);
+      return;
+    }
+
     switch (packet.type) {
       case ETHERNET_TYPE.IP:
         this.HandleIP(packet.data as IP, packet.CONTEXT.Indent("IP Handler"));
@@ -243,45 +223,5 @@ export class Router {
     //     ).src.toString()} on interface ${iface.mac}`,
     //   );
     // }
-  }
-}
-
-export class NetworkInterface {
-  device: Router | null;
-  mac: MACAddress;
-  ip: IPAddress[];
-  network: Network | null;
-  constructor(mac: MACAddress, ip: IPAddress[]) {
-    this.network = null;
-    this.device = null;
-    this.mac = mac;
-    this.ip = ip;
-  }
-
-  RegisterDeviceCallback(device: Router) {
-    this.device = device;
-  }
-
-  RegisterNetworkCallback(network: Network) {
-    this.network = network;
-  }
-
-  Ingress(packet: EthernetPacket) {
-    if (packet.dst === this.mac || packet.dst.isBroadcast()) {
-      if (!this.device) {
-        throw new Error("Device not registered");
-      }
-      packet.CONTEXT.iface = this;
-      this.device.HandlePacket(packet);
-    }
-  }
-
-  Egress(packet: EthernetPacket) {
-    if (!this.network) {
-      throw new Error("Network not registered");
-    }
-
-    packet.CONTEXT.iface = this;
-    this.network.Forward(packet);
   }
 }

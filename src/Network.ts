@@ -1,4 +1,4 @@
-import { Router, NetworkInterface } from "./Router";
+import { NetworkInterface } from "./NetworkInterface";
 import { MACAddress, EthernetPacket } from "./Protocol";
 
 export class Network {
