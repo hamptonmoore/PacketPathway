@@ -1,4 +1,3 @@
-import { Log } from "./Logger";
 import { Network } from "./Network";
 import {
   IPAddress,
@@ -10,21 +9,48 @@ import {
   ICMP,
   ARP_OPERATION,
   ARP,
+  PacketContext,
+  IPAddressRaw
 } from "./Protocol";
 
 interface ARPEntry {
   MAC: MACAddress;
   Interface: NetworkInterface;
 }
+
+class ARPTable {
+  table: Map<string, ARPEntry>;
+  constructor() {
+    this.table = new Map();
+  }
+  Add(ip: IPAddress, entry: ARPEntry) {
+    this.table.set(ip.toString(), entry);
+  }
+  Get(ip: IPAddress) {
+    return this.table.get(ip.toString());
+  }
+  Count(){
+    return this.table.size;
+  }
+  Dump() {
+    console.log(`ARP Table:`);
+    this.table.forEach((entry, ip) => {
+      console.log(`  ${ip} -> ${entry.MAC.toString()}`);
+    });
+  }
+}
+
 export class Router {
   interfaces: NetworkInterface[];
   hostname: string;
-  arpTable: Map<IPAddress, ARPEntry>;
+  arpTable: ARPTable;
+  routingTable: Map<IPAddress, NetworkInterface>;
 
   constructor(hostname: string) {
     this.hostname = hostname;
     this.interfaces = [];
-    this.arpTable = new Map();
+    this.arpTable = new ARPTable();
+    this.routingTable = new Map();
   }
 
   LoggerName() {
@@ -47,22 +73,16 @@ export class Router {
     return "eth" + this.interfaces.indexOf(iface);
   }
 
-  DumpArpTable() {
-    this.arpTable.forEach((entry, ip) => {
-      console.log(
-        `${ip.toString()} -> ${entry.MAC.toString()} on interface ${this.IfaceToLinux(
-          entry.Interface,
-        )}`,
-      );
-    });
-  }
-
   RegisterInterface(iface: NetworkInterface) {
     this.interfaces.push(iface);
     iface.RegisterDeviceCallback(this);
+    // Add the interface to the routing table
+    iface.ip.forEach((ip) => {
+      this.routingTable.set(ip.asSubnet(), iface);
+    });
   }
 
-  SendArpRequest(dst: IPAddress) {
+  SendArpRequest(dst: IPAddress, ctx: PacketContext) {
     // Find the interface that matches the destination IP
     const iface = this.interfaces.filter((iface) => {
       return (
@@ -75,8 +95,9 @@ export class Router {
     if (!iface) {
       throw new Error("No interface found");
     }
-
+    ctx.iface = iface;
     const packet: EthernetPacket = {
+      CONTEXT: ctx,
       PACKET_TYPE: "ETHERNET",
       src: iface.mac,
       dst: MACAddress.fromString("ff:ff:ff:ff:ff:ff"),
@@ -90,53 +111,56 @@ export class Router {
         targetProtocolAddress: dst,
       },
     };
-    Log(this, `sending ARP request for ${dst.toString()}`);
+    ctx.Log(this, `SENT: ARP request for ${dst.toString()}`);
     iface.Egress(packet);
   }
 
-  HandlePacket(packet: EthernetPacket, iface: NetworkInterface) {
-    Log(
+  HandlePacket(packet: EthernetPacket) {
+    const ctx = packet.CONTEXT;
+
+    const iface = ctx.iface as NetworkInterface;
+    ctx.Log(
       this,
-      `received packet (dst ${packet.dst.toString()}) on ${this.IfaceToLinux(
+      `RECV: packet (dst ${packet.dst.toString()}) on ${this.IfaceToLinux(
         iface,
       )}`,
     );
     switch (packet.type) {
       case ETHERNET_TYPE.IP:
-        this.HandleIP(packet.data as IP, iface, packet);
+        this.HandleIP(packet.data as IP, packet.CONTEXT.Indent("IP Handler"));
         break;
       case ETHERNET_TYPE.ARP:
-        this.HandleARP(packet.data as ARP, iface);
+        this.HandleARP(packet.data as ARP, packet.CONTEXT.Indent("ARP Handler"));
         break;
     }
   }
 
-  HandleARP(packet: ARP, iface: NetworkInterface) {
+  HandleARP(packet: ARP, ctx: PacketContext) {
+    const iface = ctx.iface as NetworkInterface;
     if (packet.operation === ARP_OPERATION.REQUEST) {
-      this.arpTable.set(packet.senderProtocolAddress, {
+      this.arpTable.Add(packet.senderProtocolAddress, {
         MAC: packet.senderHardwareAddress,
         Interface: iface,
       });
 
-      Log(
+      ctx.Log(
         this,
-        `received ARP request from ${packet.senderProtocolAddress.toString()} on ${this.IfaceToLinux(
+        `RECV: ARP ${packet.senderProtocolAddress.toString()} on ${this.IfaceToLinux(
           iface,
-        )}`,
-        1,
+        )}`
       );
-      Log(
+      ctx.Log(
         this,
-        `ARP cache ${packet.senderProtocolAddress.toString()} -> ${packet.senderHardwareAddress.toString()}`,
-        2,
+        `CACHE: ARP ${packet.senderProtocolAddress.toString()} -> ${packet.senderHardwareAddress.toString()}`,
       );
 
       if (!this.OwnsIP(packet.targetProtocolAddress)) {
-        Log(this, `dropped foreign host ARP request`, 2);
+        ctx.Log(this, `DROP: request not for us`);
         return;
       }
 
       const reply: EthernetPacket = {
+        CONTEXT: ctx.Indent(`Responding to ARP request`),
         PACKET_TYPE: "ETHERNET",
         src: iface.mac,
         dst: packet.senderHardwareAddress,
@@ -150,73 +174,75 @@ export class Router {
           targetProtocolAddress: packet.senderProtocolAddress,
         },
       };
-      Log(this, `responded to ARP request`, 2);
+      ctx.Log(this, `SENT: to ARP response`);
       iface.Egress(reply);
     }
     if (packet.operation === ARP_OPERATION.REPLY) {
-      Log(
+      ctx.Log(
         this,
-        `received ARP reply from ${packet.senderProtocolAddress.toString()} on ${this.IfaceToLinux(
+        `RECV: ARP response from ${packet.senderProtocolAddress.toString()} on ${this.IfaceToLinux(
           iface,
         )}`,
-        1,
       );
-      this.arpTable.set(packet.senderProtocolAddress, {
+      this.arpTable.Add(packet.senderProtocolAddress, {
         MAC: packet.senderHardwareAddress,
         Interface: iface,
       });
-      Log(
+      ctx.Log(
         this,
-        `ARP cache ${packet.senderProtocolAddress.toString()} -> ${packet.senderHardwareAddress.toString()}`,
-        2,
+        `CACHE: ARP ${packet.senderProtocolAddress.toString()} -> ${packet.senderHardwareAddress.toString()}`,
       );
     }
   }
 
-  HandleIP(packet: IP, iface: NetworkInterface, ethPacket: EthernetPacket) {
+  HandleIP(packet: IP, ctx: PacketContext) {
     switch (packet.protocol) {
       case IP_PROTOCOL.ICMP:
-        this.HandleICMP(packet.data as ICMP, iface, ethPacket);
+        this.HandleICMP(packet.data as ICMP, ctx.Indent("ICMP Handler"));
         break;
     }
   }
 
-  HandleICMP(packet: ICMP, iface: NetworkInterface, ethPacket: EthernetPacket) {
-    if (packet.type === 8) {
-      Log(
-        this,
-        `received ICMP echo request from ${(
-          ethPacket.data as IP
-        ).src.toString()} on interface ${iface.mac}`,
-      );
-      const reply: EthernetPacket = {
-        PACKET_TYPE: "ETHERNET",
-        src: iface.mac,
-        dst: ethPacket.src,
-        type: ETHERNET_TYPE.IP,
-        data: {
-          PACKET_TYPE: "IP",
-          src: iface.ip[0],
-          dst: (ethPacket.data as IP).src,
-          protocol: IP_PROTOCOL.ICMP,
-          data: {
-            PACKET_TYPE: "ICMP",
-            type: 0,
-            code: 0,
-            data: packet.data,
-          },
-        },
-      };
-      iface.Egress(reply);
-    }
-    if (packet.type === 0) {
-      Log(
-        this,
-        `received ICMP echo reply from ${(
-          ethPacket.data as IP
-        ).src.toString()} on interface ${iface.mac}`,
-      );
-    }
+  // SendIPPacket(packet: IP, ctx: PacketContext) {
+  //   const iface = ctx.iface as NetworkInterface;
+
+
+  HandleICMP(packet: ICMP, ctx: PacketContext) {
+    // if (packet.type === 8) {
+    //   Log(
+    //     this,
+    //     `received ICMP echo request from ${(
+    //       ethPacket.data as IP
+    //     ).src.toString()} on interface ${iface.mac}`,
+    //   );
+    //   const reply: EthernetPacket = {
+    //     PACKET_TYPE: "ETHERNET",
+    //     src: iface.mac,
+    //     dst: ethPacket.src,
+    //     type: ETHERNET_TYPE.IP,
+    //     data: {
+    //       PACKET_TYPE: "IP",
+    //       src: iface.ip[0],
+    //       dst: (ethPacket.data as IP).src,
+    //       protocol: IP_PROTOCOL.ICMP,
+    //       data: {
+    //         PACKET_TYPE: "ICMP",
+    //         type: 0,
+    //         code: 0,
+    //         data: packet.data,
+    //       },
+    //     },
+    //   };
+    //   iface.Egress(reply);
+    // }
+    // if (packet.type === 0) {
+    //   Log(
+    //     this,
+    //     `received ICMP echo reply from ${(
+    //       ethPacket.data as IP
+    //     ).src.toString()} on interface ${iface.mac}`,
+    //   );
+    // }
   }
 }
 
@@ -245,7 +271,8 @@ export class NetworkInterface {
       if (!this.device) {
         throw new Error("Device not registered");
       }
-      this.device.HandlePacket(packet, this);
+      packet.CONTEXT.iface = this;
+      this.device.HandlePacket(packet);
     }
   }
 
@@ -254,6 +281,7 @@ export class NetworkInterface {
       throw new Error("Network not registered");
     }
 
-    this.network.Forward(packet, this);
+    packet.CONTEXT.iface = this;
+    this.network.Forward(packet);
   }
 }

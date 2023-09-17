@@ -1,5 +1,9 @@
+import { NetworkInterface } from "./Router";
+
+export type IPAddressRaw = Uint8Array;
+
 export class IPAddress {
-  address: Uint8Array;
+  address: IPAddressRaw;
   mask: Uint8Array;
   constructor(address: Uint8Array, mask: Uint8Array) {
     if (address.length !== 4) {
@@ -17,6 +21,15 @@ export class IPAddress {
     return this.address.every((octet, i) => octet === ip.address[i]);
   }
 
+  asSubnet() {
+    const subnet = new Uint8Array(4);
+    subnet.fill(0);
+    this.address.forEach((octet, i) => {
+      subnet[i] = octet & this.mask[i];
+    });
+    return new IPAddress(subnet, this.mask);
+  }
+
   inNetwork(ip: IPAddress) {
     return this.address.every(
       (octet, i) => (octet & this.mask[i]) === (ip.address[i] & this.mask[i]),
@@ -28,6 +41,7 @@ export class IPAddress {
       .map((octet) => octet.toString())
       .join(".");
   }
+
   static fromCIDR(cidr: string) {
     const [address, mask] = cidr.split("/");
     const addressBytes = address.split(".").map((octet) => parseInt(octet));
@@ -120,9 +134,43 @@ export enum ETHERNET_TYPE {
 }
 
 export interface EthernetPacket {
+  CONTEXT: PacketContext;
   PACKET_TYPE: "ETHERNET";
   src: MACAddress;
   dst: MACAddress;
   type: ETHERNET_TYPE;
   data: IP | ARP;
+}
+
+export class PacketContext {
+  indent: number;
+  ctxId: number;
+  iface: NetworkInterface | undefined;
+  traces: string[];
+  logging: boolean;
+  constructor(initialTrace: string, logging = true) {
+    this.ctxId = Math.floor(Math.random() * 1000000);
+    this.indent = 0;
+    this.traces = [initialTrace];
+    this.logging = logging;
+  }
+  Log(obj: any, msg: string) {
+    if (!this.logging) return
+    let name = obj.constructor.name;
+    if (obj.LoggerName !== undefined) {
+      name = obj.LoggerName();
+    }
+    console.log(`[${name}]:${"\t".repeat(this.indent)} ${msg}`);
+  }
+
+  Indent(tracename: string) {
+    // Create new instance of PacketContext
+    const ctx = new PacketContext(tracename);
+    ctx.indent = this.indent + 1;
+    ctx.traces = [...this.traces, tracename];
+    ctx.iface = this.iface;
+    ctx.logging = this.logging;
+    
+    return ctx;
+  }
 }

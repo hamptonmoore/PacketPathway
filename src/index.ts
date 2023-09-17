@@ -1,13 +1,12 @@
+import { Network } from "./Network";
 import {
-  Network,
-} from "./Network";
-import {
-    MACAddress,
-    IPAddress,
-    EthernetPacket,
-    ARP,
-    ARP_OPERATION,
-  } from "./Protocol";
+  MACAddress,
+  IPAddress,
+  EthernetPacket,
+  ARP,
+  ARP_OPERATION,
+  PacketContext,
+} from "./Protocol";
 import { Router, NetworkInterface } from "./Router";
 
 const network = new Network("Test");
@@ -33,8 +32,8 @@ devices.push(device2);
 devices.push(device3);
 
 // device1.interfaces[0].Egress(arpPacket);
-device1.SendArpRequest(IPAddress.fromCIDR("192.168.0.2"));
-device1.SendArpRequest(IPAddress.fromCIDR("192.168.0.3"));
+device1.SendArpRequest(IPAddress.fromCIDR("192.168.0.2"), new PacketContext("Send ARP Request 192.168.0.2"));
+device1.SendArpRequest(IPAddress.fromCIDR("192.168.0.3"), new PacketContext("Send ARP Request 192.168.0.3"));
 
 console.log(
   "\n\nAll network effects from the ARP request should be complete by now.",
@@ -47,5 +46,5 @@ network.DumpForwardingTable();
 console.log(`\n-- Dump Device ARP Tables --`);
 devices.forEach((device) => {
   console.log(`\n-- ${device.hostname} --`);
-  device.DumpArpTable();
+  device.arpTable.Dump();
 });
