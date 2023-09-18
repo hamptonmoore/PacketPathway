@@ -17,7 +17,7 @@ export class ARPTable {
   Get(ip: IPAddress) {
     return this.table.get(ip.toString());
   }
-  Count(){
+  Count() {
     return this.table.size;
   }
   Dump() {

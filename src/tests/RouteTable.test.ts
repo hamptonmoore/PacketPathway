@@ -4,7 +4,10 @@ import { IPAddress, MACAddress } from "../Protocol";
 
 describe("RouteTable", () => {
   const table = new RouteTable();
-  const interface1 = new NetworkInterface(MACAddress.fromString("00:00:00:00:00:01"), [IPAddress.fromCIDR("192.168.0.2/24")]);
+  const interface1 = new NetworkInterface(
+    MACAddress.fromString("00:00:00:00:00:01"),
+    [IPAddress.fromCIDR("192.168.0.2/24")],
+  );
   table.AddSubnet(interface1.ip[0].asSubnet(), interface1);
 
   it("Basic functionality", () => {
@@ -16,11 +19,14 @@ describe("RouteTable", () => {
 
     const entry2 = table.Get(IPAddress.fromCIDR("10.0.0.0/8"));
     expect(entry2).toBe(undefined);
-
   });
 
   it("Add default route", () => {
-    table.AddRoute(IPAddress.fromCIDR("0.0.0.0/0"), interface1, IPAddress.fromCIDR("192.168.0.1"));
+    table.AddRoute(
+      IPAddress.fromCIDR("0.0.0.0/0"),
+      interface1,
+      IPAddress.fromCIDR("192.168.0.1"),
+    );
 
     expect(table.Count()).toBe(2);
 
@@ -32,5 +38,4 @@ describe("RouteTable", () => {
     expect(entry2?.Interface).toBe(interface1);
     expect(entry2?.NextHop).toBe(undefined);
   });
-
 });

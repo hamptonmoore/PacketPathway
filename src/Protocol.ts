@@ -113,6 +113,7 @@ export interface IP {
   PACKET_TYPE: "IP";
   src: IPAddress;
   dst: IPAddress;
+  ttl: number;
   protocol: IP_PROTOCOL;
   data: ICMP | string;
 }
@@ -151,14 +152,15 @@ export class PacketContext {
   iface: NetworkInterface | undefined;
   traces: string[];
   logging: boolean;
-  constructor(initialTrace: string, logging = true) {
+  constructor(initialTrace: string, logging = true, indent = 0) {
+    console.log(`${"\t".repeat(indent)} - ${initialTrace}`)
     this.ctxId = Math.floor(Math.random() * 1000000);
-    this.indent = 0;
+    this.indent = indent;
     this.traces = [initialTrace];
     this.logging = logging;
   }
   Log(obj: any, msg: string) {
-    if (!this.logging) return
+    if (!this.logging) return;
     let name = obj.constructor.name;
     if (obj.LoggerName !== undefined) {
       name = obj.LoggerName();
@@ -168,12 +170,10 @@ export class PacketContext {
 
   Indent(tracename: string) {
     // Create new instance of PacketContext
-    const ctx = new PacketContext(tracename);
-    ctx.indent = this.indent + 1;
+    const ctx = new PacketContext(tracename, this.logging, this.indent + 1);
     ctx.traces = [...this.traces, tracename];
     ctx.iface = this.iface;
-    ctx.logging = this.logging;
-    
+
     return ctx;
   }
 }

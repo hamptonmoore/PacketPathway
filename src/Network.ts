@@ -28,15 +28,13 @@ export class Network {
   }
 
   Forward(packet: EthernetPacket) {
-    const ctx = packet.CONTEXT;
+    let ctx = packet.CONTEXT;
     const iface = ctx.iface as NetworkInterface;
 
     // Cache source MAC address
     ctx.Log(
       this,
-      `RECV: packet from ${packet.src} on eth${this.interfaces.indexOf(
-        iface,
-      )}`,
+      `RECV: packet from ${packet.src} on eth${this.interfaces.indexOf(iface)}`,
     );
 
     if (
@@ -46,9 +44,7 @@ export class Network {
     ) {
       ctx.Log(
         this,
-        `CACHE: FDB ${packet.src} -> eth${this.interfaces.indexOf(
-          iface,
-        )}`,
+        `CACHE: FDB ${packet.src} -> eth${this.interfaces.indexOf(iface)}`,
       );
       this.forwardingTable.set(packet.src, iface);
     }
@@ -56,14 +52,15 @@ export class Network {
     const dst = packet.dst;
     const dstIFace = this.forwardingTable.get(dst);
     if (dstIFace) {
-      packet.CONTEXT = ctx.Indent(`Forwarding to ${dstIFace.mac}`);
+      packet.CONTEXT = ctx.Indent(`Forwarding to ${dstIFace.mac} on eth${this.interfaces.indexOf(dstIFace)}`);
       dstIFace.Ingress(packet);
     } else {
       // Send to all interfaces except the one it came from
+      ctx = ctx.Indent(`Flooding packet on all interfaces except eth${this.interfaces.indexOf(iface)} to find ${dst}`);
       this.interfaces
         .filter((dstIface) => dstIface != iface)
         .forEach((dIface) => {
-          packet.CONTEXT = ctx.Indent(`Forwarding to ${dIface.mac}`);
+          packet.CONTEXT = ctx.Indent(`Forwarding to ${dIface.mac} on eth${this.interfaces.indexOf(dIface)}`);
           dIface.Ingress(packet);
         });
     }

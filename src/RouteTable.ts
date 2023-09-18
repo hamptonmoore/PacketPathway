@@ -37,7 +37,10 @@ export class RouteTable {
     }
 
     routes.sort((a, b) => {
-      return b.mask.reduce((acc, cur) => acc + cur, 0) - a.mask.reduce((acc, cur) => acc + cur, 0);
+      return (
+        b.mask.reduce((acc, cur) => acc + cur, 0) -
+        a.mask.reduce((acc, cur) => acc + cur, 0)
+      );
     });
 
     return this.table.get(routes[0]);

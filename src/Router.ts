@@ -12,18 +12,19 @@ import {
 } from "./Protocol";
 import { ARPTable } from "./ArpTable";
 import { NetworkInterface } from "./NetworkInterface";
+import { RouteTable } from "./RouteTable";
 
 export class Router {
   interfaces: NetworkInterface[];
   hostname: string;
   arpTable: ARPTable;
-  routingTable: Map<IPAddress, NetworkInterface>;
+  routingTable: RouteTable;
 
   constructor(hostname: string) {
     this.hostname = hostname;
     this.interfaces = [];
     this.arpTable = new ARPTable();
-    this.routingTable = new Map();
+    this.routingTable = new RouteTable();
   }
 
   LoggerName() {
@@ -51,7 +52,7 @@ export class Router {
     iface.RegisterDeviceCallback(this);
     // Add the interface to the routing table
     iface.ip.forEach((ip) => {
-      this.routingTable.set(ip.asSubnet(), iface);
+      this.routingTable.AddSubnet(ip, iface);
     });
   }
 
@@ -110,7 +111,10 @@ export class Router {
         this.HandleIP(packet.data as IP, packet.CONTEXT.Indent("IP Handler"));
         break;
       case ETHERNET_TYPE.ARP:
-        this.HandleARP(packet.data as ARP, packet.CONTEXT.Indent("ARP Handler"));
+        this.HandleARP(
+          packet.data as ARP,
+          packet.CONTEXT.Indent("ARP Handler"),
+        );
         break;
     }
   }
@@ -127,7 +131,7 @@ export class Router {
         this,
         `RECV: ARP ${packet.senderProtocolAddress.toString()} on ${this.IfaceToLinux(
           iface,
-        )}`
+        )}`,
       );
       ctx.Log(
         this,
@@ -176,52 +180,75 @@ export class Router {
   }
 
   HandleIP(packet: IP, ctx: PacketContext) {
+    if (packet.ttl <= 0) {
+      ctx.Log(this, `DROP: TTL expired`);
+      return;
+    }
+    // TODO: route packet
+    if (!this.OwnsIP(packet.dst)) {
+      ctx.Log(this, `DROP: packet not for us`);
+      return;
+    }
+
     switch (packet.protocol) {
       case IP_PROTOCOL.ICMP:
-        this.HandleICMP(packet.data as ICMP, ctx.Indent("ICMP Handler"));
+        this.HandleICMP(packet, ctx.Indent("ICMP Handler"));
         break;
     }
   }
 
-  // SendIPPacket(packet: IP, ctx: PacketContext) {
-  //   const iface = ctx.iface as NetworkInterface;
+  SendIPPacket(packet: IP, ctx: PacketContext) {
+    const dst = packet.dst;
+    const sendIFace = this.routingTable.Get(dst);
+    if (!sendIFace || !sendIFace.Interface) {
+      ctx.Log(this, `DROP: no route to ${dst.toString()}`);
+      return;
+    }
 
+    let arp = this.arpTable.Get(dst);
+    if (arp == undefined) {
+      this.SendArpRequest(dst, ctx.Indent(`Send ARP Request for ${dst.toString()} as it is not in the ARP table`));
+    }
 
-  HandleICMP(packet: ICMP, ctx: PacketContext) {
-    // if (packet.type === 8) {
-    //   Log(
-    //     this,
-    //     `received ICMP echo request from ${(
-    //       ethPacket.data as IP
-    //     ).src.toString()} on interface ${iface.mac}`,
-    //   );
-    //   const reply: EthernetPacket = {
-    //     PACKET_TYPE: "ETHERNET",
-    //     src: iface.mac,
-    //     dst: ethPacket.src,
-    //     type: ETHERNET_TYPE.IP,
-    //     data: {
-    //       PACKET_TYPE: "IP",
-    //       src: iface.ip[0],
-    //       dst: (ethPacket.data as IP).src,
-    //       protocol: IP_PROTOCOL.ICMP,
-    //       data: {
-    //         PACKET_TYPE: "ICMP",
-    //         type: 0,
-    //         code: 0,
-    //         data: packet.data,
-    //       },
-    //     },
-    //   };
-    //   iface.Egress(reply);
-    // }
-    // if (packet.type === 0) {
-    //   Log(
-    //     this,
-    //     `received ICMP echo reply from ${(
-    //       ethPacket.data as IP
-    //     ).src.toString()} on interface ${iface.mac}`,
-    //   );
-    // }
+    arp = this.arpTable.Get(dst);
+    if (arp == undefined) {
+      ctx.Log(this, `DROP: no ARP entry for ${dst.toString()}`);
+      return;
+    }
+
+    const ethPacket: EthernetPacket = {
+      CONTEXT: ctx.Indent(`Sending IP packet to ${dst.toString()}`),
+      PACKET_TYPE: "ETHERNET",
+      src: sendIFace.Interface.mac,
+      dst: arp.MAC,
+      type: ETHERNET_TYPE.IP,
+      data: packet,
+    };
+    ctx.Log(this, `SENT: IP packet to ${dst.toString()}`);
+    sendIFace.Interface.Egress(ethPacket);
+  }
+
+  HandleICMP(packet: IP, ctx: PacketContext) {
+    const icmp = packet.data as ICMP;
+    if (icmp.type === 8) {
+      const reply: IP = {
+        PACKET_TYPE: "IP",
+        src: packet.dst,
+        dst: packet.src,
+        ttl: 64,
+        protocol: IP_PROTOCOL.ICMP,
+        data: {
+          PACKET_TYPE: "ICMP",
+          type: 0,
+          code: 0,
+          data: icmp.data,
+        },
+      };
+      this.SendIPPacket(reply, ctx.Indent("Send ICMP Echo Reply"));
+    }
+    if (icmp.type === 0) {
+      ctx.Log(this, `RECV: ICMP Echo Reply`);
+      ctx.Log(this, `DATA: ${icmp.data}`);
+    }
   }
 }
