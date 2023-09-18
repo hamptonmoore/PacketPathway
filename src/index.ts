@@ -72,16 +72,16 @@ device1.SendIPPacket(
   ctx
 );
 
-console.log(
-  "\n\nAll network effects from the ARP request should be complete by now.",
-);
-console.log("We can now look at the state of the network.");
+// console.log(
+//   "\n\nAll network effects from the ARP request should be complete by now.",
+// );
+// console.log("We can now look at the state of the network.");
 
-console.log(`\n-- Dump Network Forwarding Table --`);
-network.DumpForwardingTable();
+// console.log(`\n-- Dump Network Forwarding Table --`);
+// network.DumpForwardingTable();
 
-console.log(`\n-- Dump Device ARP Tables --`);
-devices.forEach((device) => {
-  console.log(`\n-- ${device.hostname} --`);
-  device.arpTable.Dump();
-});
+// console.log(`\n-- Dump Device ARP Tables --`);
+// devices.forEach((device) => {
+//   console.log(`\n-- ${device.hostname} --`);
+//   device.arpTable.Dump();
+// });

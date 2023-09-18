@@ -51,12 +51,16 @@ export class Network {
 
     const dst = packet.dst;
     const dstIFace = this.forwardingTable.get(dst);
-    if (dstIFace) {
+    if (dstIFace && !dst.isBroadcast() ) {
       packet.CONTEXT = ctx.Indent(`Forwarding to ${dstIFace.mac} on eth${this.interfaces.indexOf(dstIFace)}`);
       dstIFace.Ingress(packet);
     } else {
       // Send to all interfaces except the one it came from
-      ctx = ctx.Indent(`Flooding packet on all interfaces except eth${this.interfaces.indexOf(iface)} to find ${dst}`);
+      if (dst.isBroadcast()) {
+        ctx = ctx.Indent(`Flooding packet on all interfaces except eth${this.interfaces.indexOf(iface)} because it is a broadcast packet`);
+      } else {
+        ctx = ctx.Indent(`Flooding packet on all interfaces except eth${this.interfaces.indexOf(iface)} to find ${dst}`);
+      }
       this.interfaces
         .filter((dstIface) => dstIface != iface)
         .forEach((dIface) => {

@@ -165,7 +165,7 @@ export class PacketContext {
     if (obj.LoggerName !== undefined) {
       name = obj.LoggerName();
     }
-    console.log(`[${name}]:${"\t".repeat(this.indent)} ${msg}`);
+    console.log(`${"\t".repeat(this.indent)}[${name}]: ${msg}`);
   }
 
   Indent(tracename: string) {
